@@ -9,6 +9,8 @@ interface SfloodSyncSettings {
 	noteFolder: string; // 要同步的文件夹
 	tagPrefix: string; // 标签前缀，例如 "publish/"
 	categoryMapping: Record<string, string>; // 文件夹到分类ID的映射
+	defaultCategoryId: string; // 默认分类ID
+	slugFormat: 'filename' | 'title' | 'date-filename' | 'date-title'; // slug生成格式
 }
 
 const DEFAULT_SETTINGS: SfloodSyncSettings = {
@@ -19,7 +21,9 @@ const DEFAULT_SETTINGS: SfloodSyncSettings = {
 	syncOnSave: true,
 	noteFolder: 'Notes',
 	tagPrefix: 'publish/',
-	categoryMapping: {}
+	categoryMapping: {},
+	defaultCategoryId: '',
+	slugFormat: 'filename'
 }
 
 interface NoteMetadata {
@@ -30,6 +34,14 @@ interface NoteMetadata {
 	categoryId?: string;
 	summary?: string;
 	sfloodId?: string; // 存储在frontmatter中的笔记ID
+}
+
+interface Category {
+	id: string;
+	name: string;
+	slug: string;
+	description?: string;
+	parentId?: string | null;
 }
 
 export default class SfloodSyncPlugin extends Plugin {
@@ -183,13 +195,14 @@ export default class SfloodSyncPlugin extends Plugin {
 		const frontmatter = cache?.frontmatter;
 
 		// 生成slug
-		const slug = frontmatter?.slug || this.generateSlug(file.basename);
+		const title = frontmatter?.title || file.basename;
+		const slug = frontmatter?.slug || this.generateSlug(title, file);
 
 		// 提取标签
 		let tags: string[] = [];
 		if (frontmatter?.tags) {
-			tags = Array.isArray(frontmatter.tags) 
-				? frontmatter.tags 
+			tags = Array.isArray(frontmatter.tags)
+				? frontmatter.tags
 				: [frontmatter.tags];
 		}
 
@@ -209,11 +222,11 @@ export default class SfloodSyncPlugin extends Plugin {
 		const categoryId = this.getCategoryId(file.parent?.path || '');
 
 		return {
-			title: frontmatter?.title || file.basename,
+			title: title,
 			slug: slug,
 			tags: tags,
 			status: frontmatter?.status || 'draft',
-			categoryId: frontmatter?.categoryId || categoryId,
+			categoryId: frontmatter?.categoryId || categoryId || this.settings.defaultCategoryId || null,
 			summary: frontmatter?.summary || frontmatter?.description || '',
 			sfloodId: frontmatter?.sfloodId
 		};
@@ -225,8 +238,29 @@ export default class SfloodSyncPlugin extends Plugin {
 		return content.replace(frontmatterRegex, '').trim();
 	}
 
-	generateSlug(title: string): string {
-		return title
+	generateSlug(title: string, file: TFile): string {
+		let baseSlug = '';
+
+		switch (this.settings.slugFormat) {
+			case 'filename':
+				baseSlug = file.basename;
+				break;
+			case 'title':
+				baseSlug = title;
+				break;
+			case 'date-filename':
+				const datePrefix1 = new Date().toISOString().split('T')[0];
+				baseSlug = `${datePrefix1}-${file.basename}`;
+				break;
+			case 'date-title':
+				const datePrefix2 = new Date().toISOString().split('T')[0];
+				baseSlug = `${datePrefix2}-${title}`;
+				break;
+			default:
+				baseSlug = file.basename;
+		}
+
+		return baseSlug
 			.toLowerCase()
 			.replace(/[^\w\u4e00-\u9fa5\s-]/g, '')
 			.replace(/\s+/g, '-')
@@ -262,6 +296,17 @@ export default class SfloodSyncPlugin extends Plugin {
 			status: metadata.status,
 			categoryId: metadata.categoryId
 		});
+	}
+
+	async fetchCategories(): Promise<Category[]> {
+		try {
+			const response = await this.apiRequest('GET', '/v1/admin/categories');
+			return response.items || [];
+		} catch (error) {
+			console.error('Failed to fetch categories:', error);
+			new Notice('获取分类列表失败');
+			return [];
+		}
 	}
 
 	async updateNoteFrontmatter(file: TFile, sfloodId: string) {
@@ -455,6 +500,37 @@ class SfloodSyncSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
+		// 默认分类选择
+		const categorySetting = new Setting(containerEl)
+			.setName('默认分类')
+			.setDesc('当笔记没有指定分类时使用的默认分类（留空则不设置分类）')
+			.addButton(button => button
+				.setButtonText('刷新分类列表')
+				.onClick(async () => {
+					button.setDisabled(true);
+					button.setButtonText('加载中...');
+					await this.loadCategories(categorySetting);
+					button.setDisabled(false);
+					button.setButtonText('刷新分类列表');
+				}));
+
+		// 初始加载分类列表
+		this.loadCategories(categorySetting);
+
+		new Setting(containerEl)
+			.setName('Slug生成格式')
+			.setDesc('选择如何生成笔记的URL slug')
+			.addDropdown(dropdown => dropdown
+				.addOption('filename', '文件名')
+				.addOption('title', '标题')
+				.addOption('date-filename', '日期-文件名')
+				.addOption('date-title', '日期-标题')
+				.setValue(this.plugin.settings.slugFormat)
+				.onChange(async (value: 'filename' | 'title' | 'date-filename' | 'date-title') => {
+					this.plugin.settings.slugFormat = value;
+					await this.plugin.saveSettings();
+				}));
+
 		// 分类映射设置
 		containerEl.createEl('h3', { text: '文件夹到分类映射' });
 		containerEl.createEl('p', { 
@@ -482,11 +558,39 @@ class SfloodSyncSettingTab extends PluginSettingTab {
 				}));
 	}
 
+	async loadCategories(setting: Setting) {
+		const categories = await this.plugin.fetchCategories();
+
+		// 移除旧的下拉框（如果存在）
+		const existingDropdown = setting.controlEl.querySelector('select');
+		if (existingDropdown) {
+			existingDropdown.remove();
+		}
+
+		// 添加新的下拉框
+		setting.addDropdown(dropdown => {
+			dropdown.addOption('', '不设置默认分类');
+
+			categories.forEach(cat => {
+				const label = cat.parentId
+					? `  └─ ${cat.name}`
+					: cat.name;
+				dropdown.addOption(cat.id, label);
+			});
+
+			dropdown.setValue(this.plugin.settings.defaultCategoryId || '');
+			dropdown.onChange(async (value) => {
+				this.plugin.settings.defaultCategoryId = value;
+				await this.plugin.saveSettings();
+			});
+		});
+	}
+
 	displayCategoryMappings(container: HTMLElement) {
 		container.empty();
 
 		const mappings = this.plugin.settings.categoryMapping;
-		
+
 		if (Object.keys(mappings).length === 0) {
 			container.createEl('p', { text: '暂无映射', cls: 'setting-item-description' });
 			return;
