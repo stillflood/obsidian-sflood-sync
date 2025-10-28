@@ -1,0 +1,17 @@
+# Node modules
+node_modules/
+
+# Build
+main.js
+*.js.map
+
+# npm
+package-lock.json
+
+# IDE
+.idea
+.vscode
+
+# OS
+.DS_Store
+Thumbs.db

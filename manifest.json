@@ -1,0 +1,10 @@
+{
+  "id": "sflood-sync",
+  "name": "Sflood Notes Sync",
+  "version": "1.0.0",
+  "minAppVersion": "0.15.0",
+  "description": "自动同步Obsidian笔记到Sflood个人网站平台",
+  "author": "StillFlood",
+  "authorUrl": "https://github.com/stillflood/sflood",
+  "isDesktopOnly": false
+}
