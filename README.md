@@ -8,6 +8,8 @@
 - 🔄 **自动同步**: 支持保存时自动同步和定时批量同步
 - 🏷️ **智能标签**: 支持标签前缀过滤，只同步特定标签的笔记
 - 📁 **文件夹映射**: 支持将Obsidian文件夹映射到Sflood笔记分类
+- 🎯 **默认分类**: 从API动态获取分类列表，设置默认分类
+- 🔗 **Slug格式**: 支持多种slug生成格式（文件名/标题/日期-文件名/日期-标题）
 - 📝 **Frontmatter支持**: 自动管理笔记元数据和同步状态
 - 🔐 **安全认证**: 使用JWT令牌进行API认证
 
@@ -18,7 +20,7 @@
 1. 克隆或下载此插件到Obsidian插件文件夹:
    ```bash
    cd /path/to/your/vault/.obsidian/plugins
-   git clone https://github.com/stillflood/sflood.git obsidian-sflood-sync
+   git clone git@github.com:stillflood/obsidian-sflood-sync.git
    cd obsidian-sflood-sync
    ```
 
@@ -69,16 +71,27 @@ npm run dev
 - **标签前缀**: 只同步带有特定前缀的标签
   - 示例: `publish/` → 只同步 `#publish/tech` 这类标签
 
-### 分类映射
+### 分类设置
 
-将Obsidian文件夹映射到Sflood笔记分类:
+- **默认分类**: 点击"刷新分类列表"从API获取所有分类，选择默认分类
+  - 当笔记的frontmatter中没有指定 `categoryId` 时使用
+  - 支持层级结构显示（子分类会缩进）
 
-```
-Obsidian文件夹       →  Sflood分类ID
-Notes/Tech          →  uuid-tech-category
-Notes/Life          →  uuid-life-category
-Notes/Reading       →  uuid-reading-category
-```
+- **文件夹映射**: 将Obsidian文件夹映射到Sflood笔记分类
+  ```
+  Obsidian文件夹       →  Sflood分类ID
+  Notes/Tech          →  uuid-tech-category
+  Notes/Life          →  uuid-life-category
+  Notes/Reading       →  uuid-reading-category
+  ```
+
+### Slug生成格式
+
+选择笔记URL slug的生成方式：
+- **文件名**: 使用Obsidian文件名（默认）
+- **标题**: 使用frontmatter中的title字段
+- **日期-文件名**: `2025-01-15-filename` 格式
+- **日期-标题**: `2025-01-15-title` 格式
 
 ## 使用方法
 
@@ -108,7 +121,6 @@ sfloodId: uuid-of-synced-note  # 自动生成，请勿手动修改
 
 1. **手动同步当前笔记**
    - 使用命令面板: `Ctrl/Cmd + P` → "同步当前笔记到Sflood"
-   - 或点击侧边栏的云图标
 
 2. **批量同步所有笔记**
    - 使用命令面板: `Ctrl/Cmd + P` → "同步所有笔记到Sflood"
@@ -137,6 +149,7 @@ sfloodId: uuid-of-synced-note  # 自动生成，请勿手动修改
 - `POST /api/v1/admin/notes` - 创建新笔记
 - `PUT /api/v1/admin/notes/:id` - 更新笔记
 - `GET /api/v1/admin/notes/:id` - 获取笔记详情
+- `GET /api/v1/admin/categories` - 获取分类列表
 
 ## 故障排除
 
@@ -154,12 +167,17 @@ sfloodId: uuid-of-synced-note  # 自动生成，请勿手动修改
 2. 生成新的API令牌
 3. 更新插件设置中的访问令牌
 
-### 分类ID查找
+### 分类设置问题
 
-在Sflood管理后台:
-1. 进入笔记分类管理
-2. 查看分类详情获取UUID
-3. 复制ID到插件的分类映射中
+**方法1：使用默认分类（推荐）**
+1. 在插件设置中点击"刷新分类列表"
+2. 从下拉框中选择默认分类
+3. 所有没有指定分类的笔记会自动使用此分类
+
+**方法2：手动配置文件夹映射**
+1. 在插件设置中点击"刷新分类列表"获取分类ID
+2. 或在Sflood管理后台查看分类详情获取UUID
+3. 在"添加映射"中输入文件夹路径和分类ID
 
 ## 开发
 
@@ -200,5 +218,4 @@ MIT License
 
 - [Sflood主仓库](https://github.com/stillflood/sflood)
 - [Obsidian插件开发文档](https://docs.obsidian.md/)
-- [Sflood API文档](../services/api/README.md)
-# obsidian-sflood-sync
+- [插件仓库](https://github.com/stillflood/obsidian-sflood-sync)
