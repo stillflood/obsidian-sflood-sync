@@ -1,4 +1,4 @@
-import { App, Plugin, PluginSettingTab, Setting, Notice, TFile, Editor, MarkdownView } from 'obsidian';
+import { App, Plugin, PluginSettingTab, Setting, Notice, TFile, Editor, MarkdownView, requestUrl } from 'obsidian';
 
 interface SfloodSyncSettings {
 	apiBaseUrl: string;
@@ -294,41 +294,37 @@ export default class SfloodSyncPlugin extends Plugin {
 
 		const url = `${this.settings.apiBaseUrl}${endpoint}`;
 
-		const options: RequestInit = {
-			method: method,
-			headers: {
-				'Content-Type': 'application/json',
-				'Authorization': `Bearer ${this.settings.accessToken}`
-			}
-		};
-
-		if (data) {
-			options.body = JSON.stringify(data);
-		}
-
 		try {
-			const response = await fetch(url, options);
+			const response = await requestUrl({
+				url: url,
+				method: method,
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${this.settings.accessToken}`
+				},
+				body: data ? JSON.stringify(data) : undefined,
+				throw: false  // 不自动抛出错误，我们手动处理
+			});
 
-			if (!response.ok) {
-				const errorText = await response.text();
-				let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+			if (response.status >= 400) {
+				let errorMessage = `HTTP ${response.status}`;
 				try {
-					const errorJson = JSON.parse(errorText);
+					const errorJson = response.json;
 					errorMessage = errorJson.message || errorMessage;
 				} catch (e) {
 					// 如果不是 JSON，使用原始文本
-					if (errorText) {
-						errorMessage = errorText;
+					if (response.text) {
+						errorMessage = response.text;
 					}
 				}
 				throw new Error(errorMessage);
 			}
 
-			return await response.json();
+			return response.json;
 		} catch (error) {
-			// 网络错误（Failed to fetch）
-			if (error instanceof TypeError) {
-				throw new Error(`网络连接失败\n请求地址: ${url}\n\n可能原因:\n1. API 地址配置错误\n2. 服务器无法访问\n3. 网络连接问题\n4. CORS 配置问题\n\n原始错误: ${error.message}`);
+			// 网络错误
+			if (error.message && !error.message.startsWith('HTTP ')) {
+				throw new Error(`网络连接失败\n请求地址: ${url}\n\n可能原因:\n1. API 地址配置错误\n2. 服务器无法访问\n3. 网络连接问题\n4. SSL 证书问题\n\n原始错误: ${error.message}`);
 			}
 			throw error;
 		}
